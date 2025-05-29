@@ -10,19 +10,19 @@ def load_data():
     df = pd.read_excel('data.xlsx')
     df['datetime'] = pd.to_datetime(df['datetime'])
     df.rename(columns={'datetime': 'ds', 'demand': 'y'}, inplace=True)
-    df['cap'] = 900  # Saturation cap for logistic growth
     return df
 
 df = load_data()
 
-# Train Prophet model with logistic growth and regressors
+# Train Prophet model with temp and dew only
 @st.cache_data
 def train_model(df):
-    train_df = df.iloc[:-30].copy()
+    train_df = df.iloc[:-30]
+    df['cap'] = 900  # Adjust based on business/domain knowledge
     model = Prophet(growth='logistic', daily_seasonality=True)
     model.add_regressor('temp')
     model.add_regressor('dew')
-    model.fit(train_df[['ds', 'y', 'cap', 'temp', 'dew']])
+    model.fit(train_df[['ds', 'y', 'temp', 'dew']])
     return model
 
 model = train_model(df)
@@ -31,19 +31,17 @@ model = train_model(df)
 train_df = df.iloc[:-30]
 test_df = df.iloc[-30:]
 
-# Prepare future dataframe with cap
+# Evaluate model on last 30 days
 future = test_df[['ds']].copy()
 future['temp'] = test_df['temp'].values
 future['dew'] = test_df['dew'].values
-future['cap'] = 840
-
 forecast = model.predict(future)
 
-# Evaluate model
 mae = mean_absolute_error(test_df['y'], forecast['yhat'])
 rmse = np.sqrt(mean_squared_error(test_df['y'], forecast['yhat']))
 
-st.title("Demand Prediction with Prophet (Logistic Growth + temp/dew)")
+st.title("Demand Prediction with Prophet (temp + dew)")
+
 st.write(f"Model Performance on Last 30 Days: MAE = {mae:.2f}, RMSE = {rmse:.2f}")
 
 # User input for prediction
@@ -57,8 +55,7 @@ user_dew = st.number_input("Dew Point (°C Td) range: {10-30}", format="%.2f")
 input_df = pd.DataFrame({
     'ds': [pd.Timestamp(user_date)],
     'temp': [user_temp],
-    'dew': [user_dew],
-    'cap': [900]
+    'dew': [user_dew]
 })
 
 # Predict demand for user input
@@ -78,8 +75,3 @@ plot_df = test_df[['ds', 'y']].copy()
 plot_df['Predicted'] = forecast['yhat'].values
 plot_df.rename(columns={'y': 'Actual'}, inplace=True)
 st.line_chart(plot_df.set_index('ds'))
-
-# Optional: residual plot
-st.subheader("Residuals (Prediction Error)")
-residuals = forecast['yhat'] - test_df['y']
-st.line_chart(pd.DataFrame({'ds': test_df['ds'], 'Residuals': residuals}).set_index('ds'))
