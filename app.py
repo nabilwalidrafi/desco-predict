@@ -3,9 +3,8 @@ from prophet import Prophet
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
-# Load data once on app start
+# Load data
 @st.cache_data
 def load_data():
     df = pd.read_excel('data.xlsx')
@@ -15,89 +14,63 @@ def load_data():
 
 df = load_data()
 
-# Define feature sets again
-feature_sets = {
-    'temp_dew': ['temp', 'dew'],
-    'temp_dew_precip': ['temp', 'dew', 'precipprob'],
-    'temp_dew_precip_wind_cloud': ['temp', 'dew', 'precipprob', 'windspeedmean', 'cloudcover']
-}
-
-# Train Prophet models for each feature set once and cache
+# Train Prophet model with temp and dew only
 @st.cache_data
-def train_models(df, feature_sets):
+def train_model(df):
     train_df = df.iloc[:-30]
-    models = {}
-    for name, features in feature_sets.items():
-        model = Prophet(daily_seasonality=True)
-        for f in features:
-            model.add_regressor(f)
-        model.fit(train_df[['ds', 'y'] + features])
-        models[name] = model
-    return models
+    model = Prophet(daily_seasonality=True)
+    model.add_regressor('temp')
+    model.add_regressor('dew')
+    model.fit(train_df[['ds', 'y', 'temp', 'dew']])
+    return model
 
-models = train_models(df, feature_sets)
+model = train_model(df)
 
 # Train-test split for evaluation
 train_df = df.iloc[:-30]
 test_df = df.iloc[-30:]
 
-st.title("Demand Prediction with Prophet")
+# Evaluate model on last 30 days
+future = test_df[['ds']].copy()
+future['temp'] = test_df['temp'].values
+future['dew'] = test_df['dew'].values
+forecast = model.predict(future)
 
-# Select date for prediction (limit to last 30 days + future dates)
-min_date = df['ds'].min()
-max_date = df['ds'].max()
-selected_date = st.date_input("Select date for prediction", value=max_date, min_value=min_date, max_value=max_date)
+mae = mean_absolute_error(test_df['y'], forecast['yhat'])
+rmse = np.sqrt(mean_squared_error(test_df['y'], forecast['yhat']))
 
-# Convert selected_date to Timestamp
-selected_date_ts = pd.Timestamp(selected_date)
+st.title("Demand Prediction with Prophet (temp + dew)")
 
-# Evaluate all models on last 30 days
-metrics = {}
-forecasts = {}
+st.write(f"Model Performance on Last 30 Days: MAE = {mae:.2f}, RMSE = {rmse:.2f}")
 
-for name, features in feature_sets.items():
-    model = models[name]
-    future = test_df[['ds']].copy()
-    for f in features:
-        future[f] = test_df[f].values
-    forecast = model.predict(future)
-    forecasts[name] = forecast
-    y_true = test_df['y'].values
-    y_pred = forecast['yhat'].values
-    mae = mean_absolute_error(y_true, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    metrics[name] = {'MAE': mae, 'RMSE': rmse}
+# User input for prediction
+st.subheader("Input Features for Prediction")
+min_date = df['ds'].min().date()
+max_date = df['ds'].max().date()
+user_date = st.date_input("Select Date", value=max_date, min_value=min_date)
+user_temp = st.number_input("Temperature (temp)", format="%.2f")
+user_dew = st.number_input("Dew Point (dew)", format="%.2f")
 
-# Pick best model
-best_model_name = min(metrics, key=lambda k: metrics[k]['RMSE'])
-best_model = models[best_model_name]
-best_features = feature_sets[best_model_name]
-best_forecast = forecasts[best_model_name]
+input_df = pd.DataFrame({
+    'ds': [pd.Timestamp(user_date)],
+    'temp': [user_temp],
+    'dew': [user_dew]
+})
 
-st.write(f"Best Model Selected: **{best_model_name}**")
-st.write(f"MAE: {metrics[best_model_name]['MAE']:.2f}")
-st.write(f"RMSE: {metrics[best_model_name]['RMSE']:.2f}")
+# Predict demand for user input
+forecast_input = model.predict(input_df)
+predicted_demand = forecast_input['yhat'].values[0]
 
-# Prediction for selected date
-if selected_date_ts not in df['ds'].values:
-    st.warning("Selected date not in dataset. Prediction unavailable.")
-else:
-    input_row = df[df['ds'] == selected_date_ts][['ds'] + best_features]
-    forecast_single = best_model.predict(input_row)
-    predicted_demand = forecast_single['yhat'].values[0]
-    actual_demand = df[df['ds'] == selected_date_ts]['y'].values[0]
+st.success(f"""
+📅 Date: {user_date}  
+🌡 Temperature: {user_temp:.2f}  
+💧 Dew Point: {user_dew:.2f}  
+🔮 Predicted Demand: {predicted_demand:.2f}
+""")
 
-    st.success(f"""
-    📅 **Date**: {selected_date}  
-    🔮 **Predicted Demand**: {predicted_demand:.2f}  
-    📊 **Actual Demand**: {actual_demand:.2f}
-    """)
-
-# Time series plot for last 30 days
-st.subheader("📈 Real vs Predicted Demand (Last 30 Days)")
-
+# Plot actual vs predicted for last 30 days
+st.subheader("Real vs Predicted Demand (Last 30 Days)")
 plot_df = test_df[['ds', 'y']].copy()
-plot_df['Predicted'] = best_forecast['yhat'].values
+plot_df['Predicted'] = forecast['yhat'].values
 plot_df.rename(columns={'y': 'Actual'}, inplace=True)
-
 st.line_chart(plot_df.set_index('ds'))
