@@ -7,7 +7,7 @@ import pandas as pd
 # Load data once on app start
 @st.cache_data
 def load_data():
-    df = pd.read_excel('data3.xlsx')
+    df = pd.read_excel('data.xlsx')
     df['datetime'] = pd.to_datetime(df['datetime'])
     df.rename(columns={'datetime': 'ds', 'demand': 'y'}, inplace=True)
     return df
