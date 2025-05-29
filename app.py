@@ -49,7 +49,7 @@ min_date = df['ds'].min().date()
 max_date = df['ds'].max().date()
 user_date = st.date_input("Select Date", value=max_date, min_value=min_date)
 user_temp = st.number_input("Temperature (Celsius)", format="%.2f")
-user_dew = st.number_input("Dew Point (°C Td)", format="%.2f")
+user_dew = st.number_input("Dew Point (°C Td) range: {10-20}", format="%.2f")
 
 input_df = pd.DataFrame({
     'ds': [pd.Timestamp(user_date)],
